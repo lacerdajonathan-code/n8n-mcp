@@ -1,0 +1,238 @@
+{
+  "name": "[PRODUÇÃO] Reconhecimento Facial AWS com Log e Alerta Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "event": "onNewEmail",
+        "options": {
+          "subject": "[Reconhecimento Facial]",
+          "withAttachments": true
+        }
+      },
+      "id": "imap-email-trigger",
+      "name": "IMAP Email Trigger",
+      "type": "n8n-nodes-base.imapEmail",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.attachments[0].mimeType }}",
+              "rightValue": "image",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ]
+        }
+      },
+      "id": "check-image-attachment",
+      "name": "Check Image Attachment",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "propertyName": "data"
+      },
+      "id": "read-binary-file",
+      "name": "Read Binary File",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "resource": "face",
+        "operation": "searchFacesByImage",
+        "collectionId": "{{ $vars.COLLECTION_ID }}",
+        "binaryPropertyName": "data"
+      },
+      "id": "aws-rekognition",
+      "name": "AWS Rekognition",
+      "type": "n8n-nodes-base.awsRekognition",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.FaceMatches.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "larger"
+              }
+            }
+          ]
+        }
+      },
+      "id": "check-face-match",
+      "name": "Check Face Match",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getRows",
+        "sheetId": "{{ $vars.FACE_MAPPING_SHEET_ID }}",
+        "range": "A:B",
+        "options": {
+          "lookupColumn": "FaceId",
+          "lookupValue": "={{ $node['AWS Rekognition'].json.FaceMatches[0].Face.FaceId }}"
+        }
+      },
+      "id": "get-face-mapping",
+      "name": "Get Face Mapping",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdateRows",
+        "sheetId": "{{ $vars.RECOGNITION_LOG_SHEET_ID }}",
+        "range": "A:D",
+        "options": {
+          "columns": {
+            "mappedMode": true,
+            "value": {
+              "Data": "={{ $node['Date & Time'].json.now.toFormat('dd/MM/yyyy') }}",
+              "Hora": "={{ $node['Date & Time'].json.now.toFormat('HH:mm:ss') }}",
+              "Nome Identificado": "={{ $node['Get Face Mapping'].json.Nome }}",
+              "Nivel de Similaridade (%)": "={{ $node['AWS Rekognition'].json.FaceMatches[0].Similarity.toFixed(2) }}"
+            }
+          }
+        }
+      },
+      "id": "log-recognition",
+      "name": "Log Recognition",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1780, 200]
+    },
+    {
+      "parameters": {
+        "chatId": "{{ $vars.TELEGRAM_CHAT_ID }}",
+        "text": "🚨 Alerta de Reconhecimento Facial 🚨\n\nPessoa Identificada: *{{ $node['Get Face Mapping'].json.Nome }}*\nHorário: *{{ $node['Date & Time'].json.now.toFormat('HH:mm:ss') }} do dia {{ $node['Date & Time'].json.now.toFormat('dd/MM/yyyy') }}*\n\nNível de Confiança: *{{ $node['AWS Rekognition'].json.FaceMatches[0].Similarity.toFixed(2) }}%*",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "send-telegram-alert",
+      "name": "Send Telegram Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [2000, 200]
+    },
+    {
+      "parameters": {},
+      "id": "date-time",
+      "name": "Date & Time",
+      "type": "n8n-nodes-base.dateTime",
+      "typeVersion": 1,
+      "position": [1560, 200]
+    }
+  ],
+  "connections": {
+    "IMAP Email Trigger": {
+      "main": [
+        [
+          {
+            "node": "Check Image Attachment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Image Attachment": {
+      "main": [
+        [
+          {
+            "node": "Read Binary File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Binary File": {
+      "main": [
+        [
+          {
+            "node": "AWS Rekognition",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AWS Rekognition": {
+      "main": [
+        [
+          {
+            "node": "Check Face Match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Face Match": {
+      "main": [
+        [
+          {
+            "node": "Get Face Mapping",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Face Mapping": {
+      "main": [
+        [
+          {
+            "node": "Date & Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Date & Time": {
+      "main": [
+        [
+          {
+            "node": "Log Recognition",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Recognition": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
