@@ -1,0 +1,120 @@
+{
+  "workflow_name": "[PRODUÇÃO] Reconhecimento Facial AWS com Log e Alerta Telegram",
+  "description": "Fluxo automatizado para reconhecimento facial usando AWS Rekognition, Google Sheets e Telegram",
+  "version": "1.0",
+  "nodes": [
+    {
+      "id": "imap-trigger",
+      "name": "IMAP Email Trigger",
+      "type": "imapEmail",
+      "config": {
+        "event": "onNewEmail",
+        "filters": {
+          "subject": "[Reconhecimento Facial]",
+          "withAttachments": true
+        }
+      }
+    },
+    {
+      "id": "image-check",
+      "name": "Check Image Attachment",
+      "type": "if",
+      "config": {
+        "condition": "{{ $json.attachments[0].mimeType }} contains 'image'"
+      }
+    },
+    {
+      "id": "binary-reader",
+      "name": "Read Binary File",
+      "type": "readBinaryFile",
+      "config": {
+        "propertyName": "data"
+      }
+    },
+    {
+      "id": "aws-rekognition",
+      "name": "AWS Rekognition",
+      "type": "awsRekognition",
+      "config": {
+        "operation": "searchFacesByImage",
+        "collectionId": "{{ $vars.COLLECTION_ID }}",
+        "binaryPropertyName": "data"
+      }
+    },
+    {
+      "id": "face-match-check",
+      "name": "Check Face Match",
+      "type": "if",
+      "config": {
+        "condition": "{{ $json.FaceMatches.length }} > 0"
+      }
+    },
+    {
+      "id": "get-face-mapping",
+      "name": "Get Face Mapping",
+      "type": "googleSheets",
+      "config": {
+        "operation": "getRows",
+        "sheetId": "{{ $vars.FACE_MAPPING_SHEET_ID }}",
+        "lookupColumn": "FaceId",
+        "lookupValue": "{{ $node['AWS Rekognition'].json.FaceMatches[0].Face.FaceId }}"
+      }
+    },
+    {
+      "id": "log-recognition",
+      "name": "Log Recognition",
+      "type": "googleSheets",
+      "config": {
+        "operation": "appendOrUpdateRows",
+        "sheetId": "{{ $vars.RECOGNITION_LOG_SHEET_ID }}",
+        "columns": {
+          "Data": "{{ $node['Date & Time'].json.now.toFormat('dd/MM/yyyy') }}",
+          "Hora": "{{ $node['Date & Time'].json.now.toFormat('HH:mm:ss') }}",
+          "Nome Identificado": "{{ $node['Get Face Mapping'].json.Nome }}",
+          "Nivel de Similaridade (%)": "{{ $node['AWS Rekognition'].json.FaceMatches[0].Similarity.toFixed(2) }}"
+        }
+      }
+    },
+    {
+      "id": "telegram-alert",
+      "name": "Send Telegram Alert",
+      "type": "telegram",
+      "config": {
+        "chatId": "{{ $vars.TELEGRAM_CHAT_ID }}",
+        "text": "🚨 Alerta de Reconhecimento Facial 🚨\n\nPessoa Identificada: *{{ $node['Get Face Mapping'].json.Nome }}*\nHorário: *{{ $node['Date & Time'].json.now.toFormat('HH:mm:ss') }} do dia {{ $node['Date & Time'].json.now.toFormat('dd/MM/yyyy') }}*\n\nNível de Confiança: *{{ $node['AWS Rekognition'].json.FaceMatches[0].Similarity.toFixed(2) }}%*",
+        "parseMode": "Markdown"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "imap-trigger",
+      "to": "image-check"
+    },
+    {
+      "from": "image-check",
+      "to": "binary-reader"
+    },
+    {
+      "from": "binary-reader",
+      "to": "aws-rekognition"
+    },
+    {
+      "from": "aws-rekognition",
+      "to": "face-match-check"
+    },
+    {
+      "from": "face-match-check",
+      "to": "get-face-mapping",
+      "condition": "true"
+    },
+    {
+      "from": "get-face-mapping",
+      "to": "log-recognition"
+    },
+    {
+      "from": "log-recognition",
+      "to": "telegram-alert"
+    }
+  ]
+}
