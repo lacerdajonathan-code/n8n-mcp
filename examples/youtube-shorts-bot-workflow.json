@@ -1,0 +1,1529 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Enhanced validation with rate limiting and sanitization\nconst message = $input.item.json.message;\n\n// Basic message validation\nif (!message || !message.text || !message.chat || !message.chat.id) {\n\tthrow new Error('Invalid message format received');\n}\n\n// Sanitize user input\nfunction sanitizeText(text) {\n\treturn text\n\t\t.trim()\n\t\t.replace(/[\x00-\x1F\x7F]/g, '')\n\t\t.replace(/<script[^>]*>.*?<\\/script>/gi, '')\n\t\t.replace(/<[^>]+>/g, '')\n\t\t.replace(/javascript:/gi, '')\n\t\t.substring(0, 1000);\n}\n\nconst sanitizedText = sanitizeText(message.text);\n\n// Validar caracteres permitidos\nconst allowedPattern = /^[a-zA-ZÀ-ÿ0-9\\s.,!?;:()\\-\"'áéíóúãõâêôàèìòùçñü/]+$/;\nif (!allowedPattern.test(sanitizedText)) {\n\tthrow new Error('❌ Texto contém caracteres inválidos. Use apenas letras, números e pontuação básica.');\n}\n\n// Enhanced logging\nconst logEntry = {\n\ttimestamp: new Date().toISOString(),\n\tevent: 'telegram_message_received',\n\tchatId: message.chat.id,\n\tusername: message.from?.username || 'unknown',\n\tfirstName: message.from?.first_name || '',\n\tmessageText: sanitizedText,\n\toriginalLength: message.text.length,\n\tsanitizedLength: sanitizedText.length,\n\tmessageId: message.message_id,\n\tworkflowExecutionId: $execution.id\n};\n\nconsole.log('Incoming message:', JSON.stringify(logEntry));\n\n// Enhanced content validation\nif (sanitizedText.length > 1000) {\n\tthrow new Error('❌ Mensagem muito longa. Mantenha abaixo de 1000 caracteres.');\n}\n\nif (sanitizedText.length < 1) {\n\tthrow new Error('❌ Mensagem muito curta. Forneça mais detalhes.');\n}\n\nreturn {\n\t...message,\n\ttext: sanitizedText,\n\toriginalText: message.text,\n\tvalidatedAt: new Date().toISOString(),\n\ttextLength: sanitizedText.length,\n\tcontentValidated: true,\n\tsanitized: true\n};"
+      },
+      "id": "8acd6dea-82e0-45a1-8b28-f1efb3f84b5b",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3760,
+        2256
+      ],
+      "timeout": 10000,
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced user state processing with cleanup logic\nconst dbResult = $input.item.json;\nconst message = $('Telegram Trigger1').item.json.message;\n\nlet userState = {\n\thasActiveSession: false,\n\tlastRecord: null,\n\tnextAction: 'create_new',\n\tchatId: message.chat.id,\n\tmessageText: message.text,\n\toriginalTheme: message.text, // Store original theme before processing\n\toutputIndex: 0,\n\terror: null,\n\tuserInfo: {\n\t\tusername: message.from?.username || 'unknown',\n\t\tfirstName: message.from?.first_name || '',\n\t\tlanguageCode: message.from?.language_code || 'pt'\n\t}\n};\n\ntry {\n\tlet record = null;\n\t\n\tif (Array.isArray(dbResult) && dbResult.length > 0) {\n\t\trecord = dbResult[0];\n\t} else if (dbResult && typeof dbResult === 'object' && dbResult.id) {\n\t\trecord = dbResult;\n\t}\n\t\n\tif (record && record.id) {\n\t\tuserState.hasActiveSession = true;\n\t\tuserState.lastRecord = record;\n\t\t\n\t\t// Check for cleanup confirmation state FIRST\n\t\tif (record.status === 'awaiting_cleanup') {\n\t\t\tconst msgLower = message.text.toLowerCase().trim();\n\t\t\t// Preserve original theme from the record that triggered cleanup\n\t\t\tuserState.originalTheme = record.original_theme || record.theme || message.text;\n\t\t\t\n\t\t\tif (msgLower === 'confirmar' || msgLower.includes('confirmar')) {\n\t\t\t\tuserState.nextAction = 'confirm_cleanup';\n\t\t\t\tuserState.outputIndex = 5;\n\t\t\t} else if (msgLower === 'cancelar' || msgLower.includes('cancelar')) {\n\t\t\t\tuserState.nextAction = 'cancel_cleanup';\n\t\t\t\tuserState.outputIndex = 6;\n\t\t\t} else {\n\t\t\t\tuserState.nextAction = 'request_cleanup_confirmation';\n\t\t\t\tuserState.outputIndex = 7;\n\t\t\t}\n\t\t\treturn userState;\n\t\t}\n\t\t\n\t\t// Check for command words BEFORE processing normal status\n\t\tconst msgLower = message.text.toLowerCase().trim();\n\t\tif (msgLower === 'confirmar' || msgLower === 'cancelar') {\n\t\t\t// If we have a record but it's not in awaiting_cleanup state,\n\t\t\t// and user sends confirmar/cancelar, treat as new theme\n\t\t\tuserState.nextAction = 'check_for_drafts';\n\t\t\tuserState.outputIndex = 8;\n\t\t\treturn userState;\n\t\t}\n\t\t\n\t\t// Normal status logic\n\t\tswitch(record.status) {\n\t\t\tcase 'pending_feedback':\n\t\t\t\tuserState.nextAction = 'process_feedback';\n\t\t\t\tuserState.outputIndex = 1;\n\t\t\t\tbreak;\n\t\t\t\t\n\t\t\tcase 'draft':\n\t\t\t\tconst msgLower = message.text.toLowerCase().trim();\n\t\t\t\tif (msgLower.includes('aprovar') || msgLower === 'aprovar') {\n\t\t\t\t\tuserState.nextAction = 'approve_draft';\n\t\t\t\t\tuserState.outputIndex = 2;\n\t\t\t\t} else if (msgLower.includes('refazer') || msgLower === 'refazer') {\n\t\t\t\t\tuserState.nextAction = 'request_changes';\n\t\t\t\t\tuserState.outputIndex = 3;\n\t\t\t\t} else {\n\t\t\t\t\tuserState.nextAction = 'check_for_drafts';\n\t\t\t\t\tuserState.outputIndex = 8;\n\t\t\t\t}\n\t\t\t\tbreak;\n\t\t\t\t\n\t\t\tcase 'approved':\n\t\t\tcase 'generating':\n\t\t\tcase 'uploading':\n\t\t\t\tuserState.nextAction = 'show_status';\n\t\t\t\tuserState.outputIndex = 4;\n\t\t\t\tbreak;\n\t\t\t\t\n\t\t\tdefault:\n\t\t\t\tuserState.nextAction = 'check_for_drafts';\n\t\t\t\tuserState.outputIndex = 8;\n\t\t}\n\t} else {\n\t\tuserState.nextAction = 'check_for_drafts';\n\t\tuserState.outputIndex = 8;\n\t}\n} catch (error) {\n\tconsole.error('Error processing user state:', error);\n\tuserState.error = error.message;\n\tuserState.nextAction = 'create_new';\n\tuserState.outputIndex = 0;\n}\n\nconsole.log('User state determined:', {\n\thasActiveSession: userState.hasActiveSession,\n\taction: userState.nextAction,\n\toutputIndex: userState.outputIndex,\n\tcurrentTheme: userState.messageText,\n\tpreviousTheme: userState.lastRecord?.theme || 'none'\n});\n\nreturn userState;"
+      },
+      "id": "3034091b-034d-4c42-aad7-33a949a2e29c",
+      "name": "Process User State",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3088,
+        2352
+      ],
+      "timeout": 10000,
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "youtube",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "mappingColumns",
+          "value": {
+            "id": "=cleanup_{{ Date.now() }}",
+            "chat_id": "={{ $json.chatId }}",
+            "username": "={{ $('Telegram Trigger1').item.json.message.from.username || 'unknown' }}",
+            "theme": "={{ $json.currentTheme }}",
+            "script": "Awaiting cleanup confirmation",
+            "status": "awaiting_cleanup",
+            "created_at": "={{ new Date().toISOString() }}",
+            "updated_at": "={{ new Date().toISOString() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "46e8a57d-4be9-4b96-a9f8-14b9e85bff82",
+      "name": "Mark Awaiting Cleanup",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1488,
+        3216
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "timeout": 10000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "TjC8TnIyXfrCkLlx",
+          "name": "Postgres account 3"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Process User State').item.json.chatId }}",
+        "text": "=🎯 *Perfeito! Nenhum rascunho encontrado.*\n\n✅ Base de dados limpa!\n🎬 Agora vou criar o roteiro para:\n\n**{{ $('Process User State').item.json.originalTheme }}**\n\n⏳ Gerando roteiro otimizado...",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "e9a312e9-426e-4f26-a8a4-5380237d144f",
+      "name": "Send Starting Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -2064,
+        3312
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 500,
+      "timeout": 5000,
+      "webhookId": "send-starting-message-webhook",
+      "credentials": {
+        "telegramApi": {
+          "id": "nwmq0JaekbbELxfD",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "0b5949f6-3996-42d2-9bac-3a36540f05bb",
+      "name": "Telegram Trigger1",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -3984,
+        2256
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "webhookId": "youtube-bot-webhook-main",
+      "credentials": {
+        "telegramApi": {
+          "id": "nwmq0JaekbbELxfD",
+          "name": "Telegram account"
+        }
+      },
+      "disabled": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "check-start-cmd",
+              "leftValue": "={{ $json.text ? $json.text.toLowerCase().trim() : '' }}",
+              "rightValue": "/iniciar",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "152c1cb2-3f51-4299-adff-299c3424870d",
+      "name": "Is Start Command?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -3536,
+        2256
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat.id }}",
+        "text": "🎬 *YouTube Shorts Bot - Bem-vindo!*\n\n✅ **Para criar um vídeo, envie o tema desejado!**\n\n📝 **Exemplos de temas:**\n• _\"Como fazer café perfeito\"_\n• _\"5 dicas para economizar água\"_\n• _\"Benefícios da meditação\"_\n• _\"Receita de bolo de chocolate\"_\n\n🎯 **Recursos disponíveis:**\n• Geração automática de roteiros com IA\n• Sistema de feedback e melhorias\n• Publicação direta no YouTube\n• Templates dinâmicos por categoria\n• Limpeza automática de rascunhos\n\n💡 Digite `/ajuda` para mais informações\n⏱️ **Limite:** 1 requisição a cada 5 segundos\n\n🚀 **Comece agora enviando seu tema!**",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "3f9467f1-9c45-4608-8a5d-ce6e6f284674",
+      "name": "Send Menu1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -3312,
+        2160
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 500,
+      "timeout": 5000,
+      "webhookId": "send-menu-webhook",
+      "credentials": {
+        "telegramApi": {
+          "id": "nwmq0JaekbbELxfD",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n\tid, chat_id, username, theme, script, status,\n\tvideo_url, created_at, updated_at, feedback_count,\n\tapproved_at, published_at, youtube_id, video_template,\n\tword_count, estimated_duration, language_code\nFROM youtube \nWHERE chat_id = $1\nORDER BY created_at DESC \nLIMIT 1;",
+        "options": {}
+      },
+      "id": "d7b75c13-997b-48f5-b6f6-ecb2be5514fb",
+      "name": "Check User State1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -3312,
+        2352
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "timeout": 10000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "TjC8TnIyXfrCkLlx",
+          "name": "Postgres account 3"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 9,
+        "output": "={{ $json.outputIndex }}"
+      },
+      "id": "6255411e-53ba-4da8-bb59-2ee9523851fc",
+      "name": "Action Router1",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -2864,
+        2240
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.0-flash-exp",
+          "mode": "list"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Você é um especialista em criação de roteiros virais para YouTube Shorts.\n\n## TEMA SOLICITADO\n{{ $('Process User State').item.json.messageText }}\n\n## DIRETRIZES OBRIGATÓRIAS\n1. **Duração:** Exatamente 60 segundos quando narrado\n2. **Linguagem:** Português brasileiro casual e envolvente\n3. **Estrutura:** Gancho + Conteúdo + CTA\n4. **Público:** Conteúdo apropriado para todas as idades\n5. **Limite:** Máximo 200 palavras\n\n## ESTRUTURA OBRIGATÓRIA\n**🎣 GANCHO (0-3s):** Pergunta provocativa ou promessa irresistível\n**📚 CONTEÚDO (3-55s):** 3-5 pontos principais com exemplos práticos\n**📢 CTA (55-60s):** Chamada para ação (seguir, comentar, compartilhar)\n\n## CRITÉRIOS DE QUALIDADE\n✅ Linguagem simples e direta\n✅ Tom positivo e motivacional\n✅ Informações verificáveis e úteis\n✅ Ritmo dinâmico para manter atenção\n✅ Evitar polêmicas ou temas sensíveis\n\n## ELEMENTOS VIRAIS\n• Use números específicos\n• Inclua palavras de impacto\n• Crie curiosidade genuína\n• Ofereça valor real\n\n**IMPORTANTE:** Forneça APENAS o roteiro final, pronto para narração, sem explicações adicionais."
+            }
+          ]
+        },
+        "options": {
+          "maxOutputTokens": 500,
+          "temperature": 0.8,
+          "topP": 0.9
+        }
+      },
+      "id": "7d377107-0773-45b6-a009-2c9d9197f3dc",
+      "name": "Generate Script1",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        -1840,
+        2400
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "timeout": 30000,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "vDKk9kgHFNteQKvn",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced script validation and data preparation\nconst script = $input.item.json.text || $input.item.json.content;\nconst message = $('Process User State').item.json.messageText;\nconst chatId = $('Process User State').item.json.chatId;\nconst userInfo = $('Process User State').item.json.userInfo;\n\n// Enhanced script validation\nif (!script || typeof script !== 'string') {\n\tthrow new Error('Invalid script format received from AI.');\n}\n\nconst cleanScript = script.trim();\nif (cleanScript.length < 50) {\n\tthrow new Error('Script too short. Please try a more detailed theme.');\n}\n\nif (cleanScript.length > 1500) {\n\tthrow new Error('Script too long. Please try a more focused theme.');\n}\n\n// Enhanced inappropriate content detection\nconst inappropriateWords = [\n\t'violência', 'drogas', 'sexo', 'ódio', 'discriminação',\n\t'suicídio', 'automutilação', 'bullying', 'assédio',\n\t'terrorismo', 'armas', 'explosivos', 'pornografia',\n\t'racismo', 'homofobia', 'xenofobia', 'preconceito'\n];\n\nconst scriptLower = cleanScript.toLowerCase();\nfor (const word of inappropriateWords) {\n\tif (scriptLower.includes(word)) {\n\t\tthrow new Error('Generated script contains inappropriate content. Please try a different theme.');\n\t}\n}\n\n// Quality checks\nconst wordCount = cleanScript.split(/\\s+/).length;\nif (wordCount > 250) {\n\tconsole.warn('Script may be too long for 60 seconds:', wordCount, 'words');\n}\n\n// Enhanced data preparation\nconst now = new Date().toISOString();\nconst recordId = 'yt_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);\n\n// Estimate reading time (average 150 words per minute)\nconst estimatedDuration = Math.round((wordCount / 150) * 60);\n\nconst result = {\n\tid: recordId,\n\tchat_id: chatId,\n\tusername: userInfo.username || 'user',\n\ttheme: message,\n\tscript: cleanScript,\n\tstatus: 'draft',\n\tfeedback_count: 0,\n\tcreated_at: now,\n\tupdated_at: now,\n\tword_count: wordCount,\n\testimated_duration: estimatedDuration,\n\tlanguage_code: userInfo.languageCode || 'pt'\n};\n\nconsole.log('Script prepared:', {\n\tid: recordId,\n\twordCount: wordCount,\n\testimatedDuration: estimatedDuration,\n\ttheme: message\n});\n\nreturn result;"
+      },
+      "id": "94f680ae-97ac-4838-b2af-7dbed1632543",
+      "name": "Prepare Data1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1488,
+        2400
+      ],
+      "timeout": 10000,
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "youtube",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "mappingColumns",
+          "value": {
+            "id": "={{ $json.id }}",
+            "chat_id": "={{ $json.chat_id }}",
+            "username": "={{ $json.username }}",
+            "theme": "={{ $json.theme }}",
+            "script": "={{ $json.script }}",
+            "status": "={{ $json.status }}",
+            "feedback_count": "={{ $json.feedback_count }}",
+            "created_at": "={{ $json.created_at }}",
+            "updated_at": "={{ $json.updated_at }}",
+            "word_count": "={{ $json.word_count }}",
+            "estimated_duration": "={{ $json.estimated_duration }}",
+            "language_code": "={{ $json.language_code }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "82d90e0a-9961-4a19-b27a-4e29a97c12dc",
+      "name": "Save Script1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1264,
+        2400
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "timeout": 10000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "TjC8TnIyXfrCkLlx",
+          "name": "Postgres account 3"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "✅ *Roteiro Criado com Sucesso!*\n\n📝 **Tema:** {{ $json.theme }}\n⏱️ **Duração estimada:** {{ $json.estimated_duration }}s\n📊 **Palavras:** {{ $json.word_count }}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{{ $json.script }}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n**🎬 Próximos passos:**\n✅ Digite `aprovar` para publicar no YouTube\n🔄 Digite `refazer` para melhorar o roteiro\n\n💡 *Dica: O roteiro foi otimizado para máximo engajamento!*",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "412df27d-9752-46a1-953a-0dba081516ce",
+      "name": "Send for Review1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1040,
+        2400
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 500,
+      "timeout": 5000,
+      "webhookId": "send-review-webhook",
+      "credentials": {
+        "telegramApi": {
+          "id": "nwmq0JaekbbELxfD",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-1.5-flash",
+          "mode": "list"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Melhore este roteiro com o feedback:\n\nTEMA: {{ $('Process User State').item.json.lastRecord.theme }}\n\nROTEIRO ATUAL:\n{{ $('Process User State').item.json.lastRecord.script }}\n\nFEEDBACK:\n{{ $('Process User State').item.json.messageText }}\n\nMantenha a estrutura de 60 segundos. Forneça apenas o roteiro melhorado."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.7
+        }
+      },
+      "id": "7c5db2f0-5299-4f85-a8a2-5e5519100290",
+      "name": "Regenerate With Feedback1",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        -2640,
+        1968
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "timeout": 30000,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "vDKk9kgHFNteQKvn",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "youtube",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "mappingColumns",
+          "value": {
+            "script": "={{ $json.text }}",
+            "status": "draft",
+            "updated_at": "={{ new Date().toISOString() }}",
+            "feedback_count": "={{ ($('Process User State').item.json.lastRecord.feedback_count || 0) + 1 }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": true,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "value": "={{ $('Process User State').item.json.lastRecord.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "352bd67c-dcd2-4122-9124-e4441114de40",
+      "name": "Update With Feedback1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -2288,
+        1968
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "timeout": 10000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "TjC8TnIyXfrCkLlx",
+          "name": "Postgres account 3"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Process User State').item.json.chatId }}",
+        "text": "✅ *Roteiro Melhorado!*\n\n{{ $('Regenerate With Feedback1').item.json.text }}\n\n━━━━━━━━━━━━━━━\n✅ Digite `aprovar` para publicar\n🔄 Digite `refazer` para novos ajustes",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "50c1cb2d-a11f-4876-b2a1-0c1978960d53",
+      "name": "Send Improved1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -2064,
+        1968
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 500,
+      "timeout": 5000,
+      "webhookId": "send-improved-webhook",
+      "credentials": {
+        "telegramApi": {
+          "id": "nwmq0JaekbbELxfD",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "youtube",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "mappingColumns",
+          "value": {
+            "status": "approved",
+            "approved_at": "={{ new Date().toISOString() }}",
+            "updated_at": "={{ new Date().toISOString() }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": true,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "value": "={{ $('Process User State').item.json.lastRecord.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "7bc5cf65-60e8-4bd0-9d60-0f9694c6890a",
+      "name": "Mark Approved1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -2576,
+        2160
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "timeout": 10000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "TjC8TnIyXfrCkLlx",
+          "name": "Postgres account 3"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced dynamic video generation based on theme\nconst theme = $('Process User State').item.json.lastRecord.theme;\nconst script = $('Process User State').item.json.lastRecord.script;\n\n// Advanced video template selection\nconst videoTemplates = {\n\t'café': 'https://sample-videos.com/video321/mp4/720/coffee_template.mp4',\n\t'culinária': 'https://sample-videos.com/video321/mp4/720/cooking_template.mp4',\n\t'tecnologia': 'https://sample-videos.com/video321/mp4/720/tech_template.mp4',\n\t'saúde': 'https://sample-videos.com/video321/mp4/720/health_template.mp4',\n\t'educação': 'https://sample-videos.com/video321/mp4/720/education_template.mp4',\n\t'dicas': 'https://sample-videos.com/video321/mp4/720/tips_template.mp4',\n\t'negócios': 'https://sample-videos.com/video321/mp4/720/business_template.mp4',\n\t'fitness': 'https://sample-videos.com/video321/mp4/720/fitness_template.mp4',\n\t'viagem': 'https://sample-videos.com/video321/mp4/720/travel_template.mp4',\n\t'default': 'https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4'\n};\n\n// Smart theme detection\nlet selectedTemplate = videoTemplates.default;\nlet matchedKeyword = 'default';\nconst themeLower = theme.toLowerCase();\n\n// Find best matching template\nfor (const [keyword, template] of Object.entries(videoTemplates)) {\n\tif (keyword !== 'default' && themeLower.includes(keyword)) {\n\t\tselectedTemplate = template;\n\t\tmatchedKeyword = keyword;\n\t\tbreak;\n\t}\n}\n\n// Generate unique video ID for tracking\nconst videoId = 'vid_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);\n\nconst videoUrl = selectedTemplate;\n\nconsole.log('Video generation:', {\n\ttheme: theme,\n\tmatchedKeyword: matchedKeyword,\n\tselectedTemplate: selectedTemplate,\n\tvideoId: videoId\n});\n\nreturn {\n\tvideoUrl: videoUrl,\n\ttemplateUsed: matchedKeyword,\n\tvideoId: videoId,\n\ttheme: theme,\n\tscript: script,\n\tgeneratedAt: new Date().toISOString()\n};"
+      },
+      "id": "ff017185-0cdb-4b92-aca7-b8428f699daa",
+      "name": "Generate Video1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2288,
+        2160
+      ],
+      "timeout": 15000,
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.videoUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "videoFile"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "c977e243-b08d-4f59-b33f-bf261f279694",
+      "name": "Download Video1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2064,
+        2160
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "timeout": 60000,
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "title-field",
+              "name": "title",
+              "value": "={{ $('Process User State').item.json.lastRecord.theme }}",
+              "type": "string"
+            },
+            {
+              "id": "description-field",
+              "name": "description",
+              "value": "={{ $('Process User State').item.json.lastRecord.script }}",
+              "type": "string"
+            },
+            {
+              "id": "record-id-field",
+              "name": "recordId",
+              "value": "={{ $('Process User State').item.json.lastRecord.id }}",
+              "type": "string"
+            },
+            {
+              "id": "template-field",
+              "name": "templateUsed",
+              "value": "={{ $('Generate Video1').item.json.templateUsed }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "0d737de0-12d2-43c8-95da-1b405b412d51",
+      "name": "Prepare YouTube1",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1776,
+        2592
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{ $json.title }}",
+        "regionCode": "BR",
+        "categoryId": "22",
+        "binaryProperty": "videoFile",
+        "options": {
+          "description": "={{ $json.description }}",
+          "privacyStatus": "public",
+          "tags": "shorts,youtube,viral,{{ $json.templateUsed }}"
+        }
+      },
+      "id": "50c5c2ee-6c32-4ab0-9828-317c7cb68306",
+      "name": "Upload YouTube1",
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [
+        -1488,
+        2592
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "timeout": 120000,
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "GZokEBI8cMgJgKZ7",
+          "name": "YouTube account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "youtube",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "mappingColumns",
+          "value": {
+            "status": "published",
+            "video_url": "=https://youtube.com/watch?v={{ $('Upload YouTube1').item.json.id }}",
+            "youtube_id": "={{ $('Upload YouTube1').item.json.id }}",
+            "published_at": "={{ new Date().toISOString() }}",
+            "updated_at": "={{ new Date().toISOString() }}",
+            "video_template": "={{ $('Prepare YouTube1').item.json.templateUsed }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": true,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "value": "={{ $('Prepare YouTube1').item.json.recordId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fc27294b-d75b-43b9-9a53-9aa7c6a8d71e",
+      "name": "Update Published1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1264,
+        2592
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "timeout": 10000,
+      "credentials": {
+        "postgres": {
+          "id": "TjC8TnIyXfrCkLlx",
+          "name": "Postgres account 3"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Process User State').item.json.chatId }}",
+        "text": "=🎉 *Vídeo Publicado com Sucesso!*\n\n📺 **Link:** https://youtube.com/watch?v={{ $('Upload YouTube1').item.json.id }}\n\n🎬 **Template:** {{ $('Prepare YouTube1').item.json.templateUsed }}\n⏱️ **Publicado em:** {{ new Date().toLocaleString('pt-BR') }}\n\n✅ Envie um novo tema para criar outro vídeo!\n\n💡 *Dica: Temas específicos geram vídeos mais personalizados*",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "363acaa7-8dab-4247-ba7e-d67249e8e449",
+      "name": "Success Message1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1040,
+        2592
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 500,
+      "timeout": 5000,
+      "webhookId": "success-webhook",
+      "credentials": {
+        "telegramApi": {
+          "id": "nwmq0JaekbbELxfD",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Process User State').item.json.chatId }}",
+        "text": "📝 *O que você gostaria de melhorar no roteiro?*\n\nDescreva as mudanças desejadas e eu vou refazer o roteiro com suas sugestões.\n\n💡 **Exemplos:**\n• _\"Quero um tom mais divertido\"_\n• _\"Adicione mais exemplos práticos\"_\n• _\"Torne mais técnico\"_\n• _\"Simplifique a linguagem\"_\n\n✏️ Digite sua sugestão:",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "0d799c5b-b4bb-4183-9b7e-c4756d054dea",
+      "name": "Request Feedback1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -2576,
+        2352
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 500,
+      "timeout": 5000,
+      "webhookId": "request-feedback-webhook",
+      "credentials": {
+        "telegramApi": {
+          "id": "nwmq0JaekbbELxfD",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "value": "public",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "youtube",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "mappingColumns",
+          "value": {
+            "status": "pending_feedback",
+            "updated_at": "={{ new Date().toISOString() }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": true,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "value": "={{ $('Process User State').item.json.lastRecord.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9938c505-eeb1-4fa8-a8e4-bd42b1492940",
+      "name": "Mark Pending1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -2288,
+        2352
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "timeout": 10000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "TjC8TnIyXfrCkLlx",
+          "name": "Postgres account 3"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Process User State').item.json.chatId }}",
+        "text": "=⏳ *Processando seu vídeo...*\n\nSeu conteúdo está sendo processado. Este processo pode levar alguns minutos.\n\n📊 **Status atual:** {{ $('Process User State').item.json.lastRecord.status }}\n📅 **Iniciado em:** {{ new Date($('Process User State').item.json.lastRecord.updated_at).toLocaleString('pt-BR') }}\n\n⏱️ **Próximos passos:**\n1. Geração do vídeo\n2. Upload para YouTube\n3. Notificação de conclusão\n\n💬 Envie uma nova mensagem em alguns minutos para verificar o progresso.",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "b4909389-e45b-479b-bd7a-d2b77184f9b5",
+      "name": "Show Status1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -2576,
+        2544
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 500,
+      "timeout": 5000,
+      "webhookId": "show-status-webhook",
+      "credentials": {
+        "telegramApi": {
+          "id": "nwmq0JaekbbELxfD",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Deletar todos os rascunhos do usuário exceto publicados\nDELETE FROM youtube \nWHERE chat_id = $1\n\tAND status != 'published';\n\n-- Retornar confirmação\nSELECT \n\t'Rascunhos deletados com sucesso!' as message, \n\t$2 as new_theme;",
+        "options": {}
+      },
+      "id": "7f5bd28b-fe08-4da7-b27e-e8ea943156ec",
+      "name": "Confirm Cleanup1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -2288,
+        2688
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "timeout": 10000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "TjC8TnIyXfrCkLlx",
+          "name": "Postgres account 3"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Process User State').item.json.chatId }}",
+        "text": "=✅ *Rascunhos deletados com sucesso!*\n\nBase de dados limpa! Agora vou criar o roteiro para:\n\n🎯 **Novo tema:** *{{ $('Process User State').item.json.originalTheme }}*\n\n⏳ Gerando roteiro otimizado...",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "980c917e-363e-48be-bfb0-b4c9a4058bac",
+      "name": "Cleanup Success1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -2064,
+        2688
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 500,
+      "timeout": 5000,
+      "webhookId": "cleanup-success-webhook",
+      "credentials": {
+        "telegramApi": {
+          "id": "nwmq0JaekbbELxfD",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Cancelar processo de limpeza\nDELETE FROM youtube \nWHERE chat_id = $1\n\tAND status = 'awaiting_cleanup';\n\n-- Retornar confirmação\nSELECT 'Limpeza cancelada - rascunhos mantidos' as message;",
+        "options": {}
+      },
+      "id": "6b5bbe8f-7903-482a-8f45-ffac94f1e45b",
+      "name": "Cancel Cleanup1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -2576,
+        2832
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "timeout": 10000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "TjC8TnIyXfrCkLlx",
+          "name": "Postgres account 3"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Process User State').item.json.chatId }}",
+        "text": "=❌ *Limpeza cancelada*\n\nSeus rascunhos foram mantidos na base de dados.\n\n📝 **Para criar um novo tema, você precisa:**\n• Aprovar um rascunho existente (digite `aprovar`)\n• Ou confirmar a limpeza dos rascunhos\n\n📋 **Rascunhos atuais:** {{ $('Process User State').item.json.lastRecord.theme }}\n\n💡 Digite `/iniciar` para ver o menu principal",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "824803f0-59d8-4233-ab4e-1866e28cedb0",
+      "name": "Cleanup Cancelled1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -3984,
+        3536
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 500,
+      "timeout": 5000,
+      "webhookId": "cleanup-cancelled-webhook",
+      "credentials": {
+        "telegramApi": {
+          "id": "nwmq0JaekbbELxfD",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Process User State').item.json.chatId }}",
+        "text": "=⚠️ *Resposta não reconhecida*\n\nPara prosseguir com a limpeza dos rascunhos, responda:\n\n✅ `confirmar` - para deletar os rascunhos e criar novo tema\n❌ `cancelar` - para manter os rascunhos existentes\n\n🎯 **Tema aguardando:** {{ $('Process User State').item.json.messageText }}\n\n💡 Digite exatamente uma das palavras acima",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "852a01d2-bed3-46c0-8ea1-fd036de44e04",
+      "name": "Request Confirmation Again1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -2576,
+        3024
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 500,
+      "timeout": 5000,
+      "webhookId": "request-confirmation-webhook",
+      "credentials": {
+        "telegramApi": {
+          "id": "nwmq0JaekbbELxfD",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n\tid, theme, status, created_at,\n\tCASE \n\t\tWHEN status = 'draft' THEN '📝 Rascunho'\n\t\tWHEN status = 'pending_feedback' THEN '⏳ Aguardando feedback'\n\t\tWHEN status = 'approved' THEN '✅ Aprovado'\n\t\tWHEN status = 'generating' THEN '🔄 Gerando'\n\t\tWHEN status = 'uploading' THEN '⬆️ Enviando'\n\t\tWHEN status = 'failed' THEN '❌ Falhou'\n\t\tELSE '❓ Desconhecido'\n\tEND as status_emoji\nFROM youtube \nWHERE chat_id = $1\n\tAND status != 'published'\n\tAND status != 'awaiting_cleanup'\n\tAND status IS NOT NULL\n\tAND status != ''\n\tAND id IS NOT NULL\n\tAND id != ''\nORDER BY created_at DESC;",
+        "options": {}
+      },
+      "id": "942e72bd-0c71-4438-a460-7097820b7110",
+      "name": "Check Drafts1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -2576,
+        3216
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "timeout": 10000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "TjC8TnIyXfrCkLlx",
+          "name": "Postgres account 3"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-drafts-check",
+              "leftValue": "={{ $input.all().length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7efeaa0b-54cd-42f5-9343-2e069cfa1b7b",
+      "name": "Has Drafts?1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -2288,
+        3216
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Preparar lista detalhada de rascunhos com contador e validação\nconst inputData = $input.all();\nconst message = $('Telegram Trigger1').item.json.message;\n\nlet drafts = [];\nif (Array.isArray(inputData)) {\n\tdrafts = inputData.map(item => item.json);\n} else if (inputData && inputData.json) {\n\tdrafts = [inputData.json];\n}\n\n// Filtrar registros válidos e limpar dados corrompidos\ndrafts = drafts.filter(draft => {\n\treturn draft && (draft.id || draft.chat_id); // Pelo menos ID ou chat_id deve existir\n}).map(draft => {\n\t// Limpar e validar campos\n\treturn {\n\t\tid: draft.id || 'ID não disponível',\n\t\tchat_id: draft.chat_id || 'N/A',\n\t\tusername: draft.username || 'unknown',\n\t\ttheme: draft.theme || 'Sem tema',\n\t\tscript: draft.script || 'Script não disponível',\n\t\tstatus: draft.status || 'unknown',\n\t\tcreated_at: draft.created_at || null,\n\t\tupdated_at: draft.updated_at || null\n\t};\n});\n\nif (drafts.length === 0) {\n\t// Não retornar dados para permitir que Has Drafts? funcione corretamente\n\treturn [];\n}\n\n// Contar por status\nconst statusCount = {};\ndrafts.forEach(draft => {\n\tstatusCount[draft.status] = (statusCount[draft.status] || 0) + 1;\n});\n\n// Criar lista formatada com contador\nlet draftList = `📋 *${drafts.length} Temas não finalizados encontrados:*\\n\\n`;\n\n// Agrupar por tema para evitar repetição\nconst themeGroups = {};\ndrafts.forEach(draft => {\n\tconst theme = draft.theme || 'Sem tema';\n\tif (!themeGroups[theme]) {\n\t\tthemeGroups[theme] = [];\n\t}\n\tthemeGroups[theme].push(draft);\n});\n\n// Listar temas agrupados\nlet itemIndex = 1;\nObject.keys(themeGroups).forEach(theme => {\n\tconst group = themeGroups[theme];\n\tconst firstDraft = group[0];\n\t\n\t// Determinar emoji baseado no status\n\tconst statusEmoji = {\n\t\t'draft': '📝',\n\t\t'pending_feedback': '⏳',\n\t\t'approved': '✅',\n\t\t'generating': '🎬',\n\t\t'uploading': '📤',\n\t\t'awaiting_cleanup': '🗑️'\n\t}[firstDraft.status] || '❓';\n\t\n\tconst date = firstDraft.created_at ? \n\t\tnew Date(firstDraft.created_at).toLocaleDateString('pt-BR') : \n\t\t'Data não disponível';\n\t\n\tif (group.length === 1) {\n\t\tdraftList += `${itemIndex}. ${statusEmoji} *${theme}*\\n`;\n\t\tdraftList += `\t\t📅 Criado em: ${date}\\n`;\n\t\tdraftList += `\t\t🆔 ID: ${firstDraft.id}\\n\\n`;\n\t} else {\n\t\tdraftList += `${itemIndex}. ${statusEmoji} *${theme}*\\n`;\n\t\tdraftList += `\t\t📊 **${group.length} registros duplicados**\\n`;\n\t\tdraftList += `\t\t📅 Criado em: ${date}\\n`;\n\t\tdraftList += `\t\t🆔 IDs: ${group.map(d => d.id).join(', ')}\\n\\n`;\n\t}\n\titemIndex++;\n});\n\n// Estatísticas\ndraftList += `📊 **Resumo:**\\n`;\ndraftList += `• Total de registros: ${drafts.length}\\n`;\ndraftList += `• Temas únicos: ${Object.keys(themeGroups).length}\\n`;\nObject.keys(statusCount).forEach(status => {\n\tconst emoji = status === 'draft' ? '📝' : '❓';\n\tdraftList += `• ${emoji} ${status}: ${statusCount[status]}\\n`;\n});\n\n// Get original theme from user state (passed through the flow)\nconst originalTheme = $('Process User State').item.json.originalTheme || message.text;\ndraftList += `\\n⚠️ *Para criar o novo tema '${originalTheme}', preciso limpar TODOS estes ${drafts.length} rascunhos.*\\n\\n`;\ndraftList += \"✅ Digite `confirmar` para deletar **TODOS** e continuar\\n\";\ndraftList += \"❌ Digite `cancelar` para manter os rascunhos\\n\\n\";\ndraftList += `💡 *Atenção: Serão deletados todos os ${drafts.length} registros listados acima!*`;\n\nreturn {\n\tchatId: message.chat.id,\n\thasDrafts: true,\n\tdraftCount: drafts.length,\n\tuniqueThemes: Object.keys(themeGroups).length,\n\tmessage: draftList,\n\tcurrentTheme: originalTheme,\n\tdraftsToDelete: drafts.map(d => d.id),\n\tstatusBreakdown: statusCount\n};"
+      },
+      "id": "7ad4e319-43f5-4581-a6e1-eb82fba7038a",
+      "name": "List Drafts1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2064,
+        3056
+      ],
+      "timeout": 10000,
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "76f05336-4ae1-45e6-aa62-2ef7f77bb25c",
+      "name": "Ask Confirmation1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1776,
+        3216
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 500,
+      "timeout": 5000,
+      "webhookId": "ask-confirmation-webhook",
+      "credentials": {
+        "telegramApi": {
+          "id": "nwmq0JaekbbELxfD",
+          "name": "Telegram account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Is Start Command?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process User State": {
+      "main": [
+        [
+          {
+            "node": "Action Router1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Starting Message": {
+      "main": [
+        [
+          {
+            "node": "Generate Script1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger1": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Start Command?1": {
+      "main": [
+        [
+          {
+            "node": "Send Menu1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check User State1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check User State1": {
+      "main": [
+        [
+          {
+            "node": "Process User State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Action Router1": {
+      "main": [
+        [
+          {
+            "node": "Generate Script1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Regenerate With Feedback1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Approved1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Request Feedback1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Show Status1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Confirm Cleanup1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cancel Cleanup1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Request Confirmation Again1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Drafts1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Script1": {
+      "main": [
+        [
+          {
+            "node": "Prepare Data1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Data1": {
+      "main": [
+        [
+          {
+            "node": "Save Script1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Script1": {
+      "main": [
+        [
+          {
+            "node": "Send for Review1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Regenerate With Feedback1": {
+      "main": [
+        [
+          {
+            "node": "Update With Feedback1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update With Feedback1": {
+      "main": [
+        [
+          {
+            "node": "Send Improved1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Approved1": {
+      "main": [
+        [
+          {
+            "node": "Generate Video1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Video1": {
+      "main": [
+        [
+          {
+            "node": "Download Video1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Video1": {
+      "main": [
+        [
+          {
+            "node": "Prepare YouTube1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare YouTube1": {
+      "main": [
+        [
+          {
+            "node": "Upload YouTube1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload YouTube1": {
+      "main": [
+        [
+          {
+            "node": "Update Published1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Published1": {
+      "main": [
+        [
+          {
+            "node": "Success Message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request Feedback1": {
+      "main": [
+        [
+          {
+            "node": "Mark Pending1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirm Cleanup1": {
+      "main": [
+        [
+          {
+            "node": "Cleanup Success1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cleanup Success1": {
+      "main": [
+        [
+          {
+            "node": "Check User State1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Drafts1": {
+      "main": [
+        [
+          {
+            "node": "Has Drafts?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Drafts?1": {
+      "main": [
+        [
+          {
+            "node": "List Drafts1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Starting Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Drafts1": {
+      "main": [
+        [
+          {
+            "node": "Ask Confirmation1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask Confirmation1": {
+      "main": [
+        [
+          {
+            "node": "Mark Awaiting Cleanup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel Cleanup1": {
+      "main": [
+        [
+          {
+            "node": "Cleanup Cancelled1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "c96d2b4d85fd1a6917df4af2aa7b23e1913504ec19c54e246a84ae1263251b47"
+  }
+}
