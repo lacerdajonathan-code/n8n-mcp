@@ -1,0 +1,187 @@
+{
+  "name": "Agenda Edu - Encaminhamento WhatsApp",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "fromEmail": "no-reply@agendaedu.com"
+        },
+        "options": {
+          "allowUnauthorizedCerts": false,
+          "forceReconnect": false
+        }
+      },
+      "id": "gmail-trigger",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-credentials",
+          "name": "Gmail OAuth2 Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ $json.from }}",
+              "rightValue": "no-reply@agendaedu.com",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-agenda-edu",
+      "name": "IF - Agenda Edu",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Função para limpar HTML\nfunction limparHTML(html) {\n  return html\n    .replace(/<[^>]*>/g, ' ') // Remove tags HTML\n    .replace(/\\s+/g, ' ') // Remove espaços múltiplos\n    .replace(/&nbsp;/g, ' ') // Remove &nbsp;\n    .replace(/&amp;/g, '&') // Decodifica &amp;\n    .replace(/&lt;/g, '<') // Decodifica &lt;\n    .replace(/&gt;/g, '>') // Decodifica &gt;\n    .replace(/&quot;/g, '\"') // Decodifica &quot;\n    .trim();\n}\n\n// Extrair nome do aluno\nconst emailContent = $input.first().json.html || $input.first().json.text || '';\n\n// Extrair nome do aluno entre \"Confira a Agenda de\" e \"e continue acompanhando\"\nconst nomeAlunoMatch = emailContent.match(/Confira a Agenda de\\s+([^\\s]+(?:\\s+[^\\s]+)*?)\\s+e continue acompanhando/);\nconst nomeAluno = nomeAlunoMatch ? nomeAlunoMatch[1].trim() : 'Nome não encontrado';\n\n// Extrair conteúdo principal entre \"certo?\" e \"Confirmar Leitura\"\nconst conteudoMatch = emailContent.match(/certo\\?([\\s\\S]*?)Confirmar Leitura/);\nlet conteudoPrincipal = conteudoMatch ? conteudoMatch[1].trim() : 'Conteúdo não encontrado';\n\n// Limpar HTML do conteúdo principal\nconteudoPrincipal = limparHTML(conteudoPrincipal);\n\n// Extrair links dos anexos\nconst linksAnexos = [];\nconst linkRegex = /<a[^>]+href=\"([^\"]+)\"[^>]*>([^<]+)<\\/a>/g;\nlet match;\n\nwhile ((match = linkRegex.exec(emailContent)) !== null) {\n  const url = match[1];\n  const texto = match[2];\n  \n  // Verificar se o texto do link corresponde a um arquivo (contém extensão)\n  if (/\\.(pdf|doc|docx|ppt|pptx|xls|xlsx|zip|rar)$/i.test(texto)) {\n    linksAnexos.push(url);\n  }\n}\n\n// Se não encontrou links com extensões, procurar por qualquer link que contenha \"Império\" ou similar\nif (linksAnexos.length === 0) {\n  const linkRegex2 = /<a[^>]+href=\"([^\"]+)\"[^>]*>([^<]*Império[^<]*)<\\/a>/g;\n  while ((match = linkRegex2.exec(emailContent)) !== null) {\n    linksAnexos.push(match[1]);\n  }\n}\n\nreturn {\n  json: {\n    'Nome do Aluno': nomeAluno,\n    'Conteúdo Principal da Mensagem': conteudoPrincipal,\n    'Links dos Anexos': linksAnexos,\n    'Email Original': $input.first().json\n  }\n};"
+      },
+      "id": "extract-data",
+      "name": "Extrair Dados do E-mail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Formatar mensagem para WhatsApp\nconst data = $input.first().json;\n\nconst nomeAluno = data['Nome do Aluno'];\nconst conteudoPrincipal = data['Conteúdo Principal da Mensagem'];\nconst linksAnexos = data['Links dos Anexos'];\n\n// Formatar links dos anexos\nlet linksFormatados = '';\nif (linksAnexos && linksAnexos.length > 0) {\n  linksFormatados = linksAnexos.map(link => `• ${link}`).join('\\n');\n} else {\n  linksFormatados = 'Nenhum anexo encontrado';\n}\n\n// Criar mensagem formatada\nconst mensagem = `*Novo Comunicado da Agenda Edu*\n\n*Aluno(a):*\n${nomeAluno}\n\n*Atividade:*\n${conteudoPrincipal}\n\n*Links para Anexos:*\n${linksFormatados}`;\n\n// Números de telefone para envio\nconst numerosTelefone = [\n  '+5521996496442',\n  '+5521966719259'\n];\n\n// Criar itens para cada número\nconst items = numerosTelefone.map(numero => ({\n  json: {\n    numero: numero,\n    mensagem: mensagem\n  }\n}));\n\nreturn items;"
+      },
+      "id": "format-message",
+      "name": "Formatar Mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "chatId": "={{ $json.numero }}",
+        "text": "={{ $json.mensagem }}",
+        "additionalFields": {}
+      },
+      "id": "whatsapp-send",
+      "name": "Enviar WhatsApp",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        300
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "whatsapp-credentials",
+          "name": "WhatsApp Business API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "IF - Agenda Edu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Agenda Edu": {
+      "main": [
+        [
+          {
+            "node": "Extrair Dados do E-mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair Dados do E-mail": {
+      "main": [
+        [
+          {
+            "node": "Formatar Mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar Mensagem": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "agenda-edu",
+      "name": "Agenda Edu"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "whatsapp",
+      "name": "WhatsApp"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}
