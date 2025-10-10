@@ -1,0 +1,187 @@
+{
+  "name": "Agenda Edu - Teste com E-mails Facebook",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "fromEmail": "security@facebookmail.com"
+        },
+        "options": {
+          "allowUnauthorizedCerts": false,
+          "forceReconnect": false
+        }
+      },
+      "id": "gmail-trigger-test",
+      "name": "Gmail Trigger - Teste",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-credentials",
+          "name": "Gmail OAuth2 Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-1",
+              "leftValue": "={{ $json.from }}",
+              "rightValue": "security@facebookmail.com",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-facebook-test",
+      "name": "IF - Facebook Teste",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Função para limpar HTML\nfunction limparHTML(html) {\n  return html\n    .replace(/<[^>]*>/g, ' ') // Remove tags HTML\n    .replace(/\\s+/g, ' ') // Remove espaços múltiplos\n    .replace(/&nbsp;/g, ' ') // Remove &nbsp;\n    .replace(/&amp;/g, '&') // Decodifica &amp;\n    .replace(/&lt;/g, '<') // Decodifica &lt;\n    .replace(/&gt;/g, '>') // Decodifica &gt;\n    .replace(/&quot;/g, '\"') // Decodifica &quot;\n    .trim();\n}\n\n// Extrair dados do e-mail do Facebook\nconst emailContent = $input.first().json.html || $input.first().json.text || '';\nconst subject = $input.first().json.subject || '';\nconst from = $input.first().json.from || '';\n\n// Extrair nome do usuário (do campo \"to\")\nconst toField = $input.first().json.to || '';\nconst nomeUsuarioMatch = toField.match(/^([^<]+)/);\nconst nomeUsuario = nomeUsuarioMatch ? nomeUsuarioMatch[1].trim() : 'Usuário não identificado';\n\n// Extrair tipo de notificação baseado no assunto\nlet tipoNotificacao = 'Notificação do Facebook';\nif (subject.includes('código de redefinição')) {\n  tipoNotificacao = 'Redefinição de Senha';\n} else if (subject.includes('senha foi alterada')) {\n  tipoNotificacao = 'Senha Alterada';\n} else if (subject.includes('login perto de')) {\n  tipoNotificacao = 'Login em Novo Dispositivo';\n}\n\n// Extrair código de verificação se existir\nconst codigoMatch = emailContent.match(/\\b\\d{6}\\b/);\nconst codigoVerificacao = codigoMatch ? codigoMatch[0] : 'N/A';\n\n// Extrair localização se existir\nconst localizacaoMatch = emailContent.match(/perto de ([^,]+)/i);\nconst localizacao = localizacaoMatch ? localizacaoMatch[1] : 'Localização não identificada';\n\n// Extrair dispositivo se existir\nconst dispositivoMatch = emailContent.match(/(Edge|Chrome|Firefox|Safari)[^<]*/i);\nconst dispositivo = dispositivoMatch ? dispositivoMatch[0] : 'Dispositivo não identificado';\n\n// Limpar conteúdo principal\nlet conteudoPrincipal = emailContent;\nif (emailContent.includes('Olá,')) {\n  const conteudoMatch = emailContent.match(/Olá,([\\s\\S]*?)(Obrigado|Tem dúvida)/i);\n  if (conteudoMatch) {\n    conteudoPrincipal = conteudoMatch[1].trim();\n  }\n}\nconteudoPrincipal = limparHTML(conteudoPrincipal);\n\n// Extrair links importantes\nconst linksImportantes = [];\nconst linkRegex = /<a[^>]+href=\"([^\"]+)\"[^>]*>([^<]+)<\\/a>/g;\nlet match;\n\nwhile ((match = linkRegex.exec(emailContent)) !== null) {\n  const url = match[1];\n  const texto = match[2];\n  \n  // Filtrar apenas links importantes\n  if (url.includes('facebook.com') && (texto.includes('Não fui eu') || texto.includes('Alterar senha') || texto.includes('Checkup'))) {\n    linksImportantes.push({\n      url: url,\n      texto: texto\n    });\n  }\n}\n\nreturn {\n  json: {\n    'Nome do Usuário': nomeUsuario,\n    'Tipo de Notificação': tipoNotificacao,\n    'Assunto': subject,\n    'Remetente': from,\n    'Código de Verificação': codigoVerificacao,\n    'Localização': localizacao,\n    'Dispositivo': dispositivo,\n    'Conteúdo Principal': conteudoPrincipal,\n    'Links Importantes': linksImportantes,\n    'Email Original': $input.first().json\n  }\n};"
+      },
+      "id": "extract-facebook-data",
+      "name": "Extrair Dados Facebook",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Formatar mensagem para WhatsApp com dados do Facebook\nconst data = $input.first().json;\n\nconst nomeUsuario = data['Nome do Usuário'];\nconst tipoNotificacao = data['Tipo de Notificação'];\nconst assunto = data['Assunto'];\nconst codigoVerificacao = data['Código de Verificação'];\nconst localizacao = data['Localização'];\nconst dispositivo = data['Dispositivo'];\nconst conteudoPrincipal = data['Conteúdo Principal'];\nconst linksImportantes = data['Links Importantes'];\n\n// Formatar links importantes\nlet linksFormatados = '';\nif (linksImportantes && linksImportantes.length > 0) {\n  linksFormatados = linksImportantes.map(link => `• ${link.texto}: ${link.url}`).join('\\n');\n} else {\n  linksFormatados = 'Nenhum link importante encontrado';\n}\n\n// Criar mensagem formatada\nconst mensagem = `*🔔 Notificação do Facebook*\n\n*Usuário:*\n${nomeUsuario}\n\n*Tipo:*\n${tipoNotificacao}\n\n*Assunto:*\n${assunto}\n\n*Detalhes:*\n${conteudoPrincipal.substring(0, 200)}...\n\n*Informações Adicionais:*\n• Código: ${codigoVerificacao}\n• Localização: ${localizacao}\n• Dispositivo: ${dispositivo}\n\n*Links Importantes:*\n${linksFormatados}`;\n\n// Números de telefone para envio\nconst numerosTelefone = [\n  '+5521996496442',\n  '+5521966719259'\n];\n\n// Criar itens para cada número\nconst items = numerosTelefone.map(numero => ({\n  json: {\n    numero: numero,\n    mensagem: mensagem\n  }\n}));\n\nreturn items;"
+      },
+      "id": "format-facebook-message",
+      "name": "Formatar Mensagem Facebook",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "chatId": "={{ $json.numero }}",
+        "text": "={{ $json.mensagem }}",
+        "additionalFields": {}
+      },
+      "id": "whatsapp-send-test",
+      "name": "Enviar WhatsApp - Teste",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        300
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "whatsapp-credentials",
+          "name": "WhatsApp Business API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gmail Trigger - Teste": {
+      "main": [
+        [
+          {
+            "node": "IF - Facebook Teste",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Facebook Teste": {
+      "main": [
+        [
+          {
+            "node": "Extrair Dados Facebook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair Dados Facebook": {
+      "main": [
+        [
+          {
+            "node": "Formatar Mensagem Facebook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar Mensagem Facebook": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp - Teste",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "facebook-test",
+      "name": "Facebook Test"
+    },
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "whatsapp",
+      "name": "WhatsApp"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}
