@@ -1,0 +1,79 @@
+{
+  "workflow": {
+    "name": "Agenda Edu - Encaminhamento WhatsApp",
+    "description": "Automatiza o encaminhamento de comunicados da Agenda Edu para o WhatsApp",
+    "version": "1.0.0"
+  },
+  "email": {
+    "provider": "IMAP",
+    "fromFilter": "no-reply@agendaedu.com",
+    "pollingInterval": "everyMinute",
+    "credentials": {
+      "imap": {
+        "host": "imap.gmail.com",
+        "port": 993,
+        "secure": true,
+        "username": "seu-email@gmail.com",
+        "password": "sua-senha-de-aplicativo"
+      }
+    }
+  },
+  "extraction": {
+    "patterns": {
+      "nomeAluno": "Confira a Agenda de\\s+([^\\s]+(?:\\s+[^\\s]+)*?)\\s+e continue acompanhando",
+      "conteudoPrincipal": "certo\\?([\\s\\S]*?)Confirmar Leitura",
+      "linksAnexos": "<a[^>]+href=\"([^\"]+)\"[^>]*>([^<]+)<\\/a>"
+    },
+    "fileExtensions": ["pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "zip", "rar"],
+    "fallbackPatterns": {
+      "império": "<a[^>]+href=\"([^\"]+)\"[^>]*>([^<]*Império[^<]*)<\\/a>"
+    }
+  },
+  "whatsapp": {
+    "provider": "WhatsApp Business API",
+    "credentials": {
+      "accessToken": "seu-token-de-acesso",
+      "phoneNumberId": "seu-phone-number-id",
+      "businessAccountId": "seu-business-account-id"
+    },
+    "recipients": [
+      {
+        "name": "Responsável 1",
+        "phone": "+5521996496442",
+        "enabled": true
+      },
+      {
+        "name": "Responsável 2", 
+        "phone": "+5521966719259",
+        "enabled": true
+      }
+    ]
+  },
+  "message": {
+    "template": {
+      "title": "*Novo Comunicado da Agenda Edu*",
+      "studentLabel": "*Aluno(a):*",
+      "activityLabel": "*Atividade:*",
+      "attachmentsLabel": "*Links para Anexos:*",
+      "noAttachmentsText": "Nenhum anexo encontrado"
+    },
+    "formatting": {
+      "bold": "*",
+      "lineBreak": "\\n",
+      "bulletPoint": "•"
+    }
+  },
+  "logging": {
+    "level": "info",
+    "saveExecutions": true,
+    "maxExecutions": 100
+  },
+  "testing": {
+    "enabled": true,
+    "testEmail": {
+      "from": "no-reply@agendaedu.com",
+      "subject": "Nova atividade - História",
+      "html": "<html><body><p>Confira a Agenda de OLIVIA DUARTE LACERDA e continue acompanhando as atividades escolares.</p><p>certo?</p><p>História - Paula Castellano</p><p>Disciplina: História</p><p>Data de entrega: Entregar em sala de aula</p><p>Descrição: Material da semana - slides Império Romano</p><p>Lição de Casa: Império...o Romano.pdf Império...o Romano.pptx</p><p><a href=\"http://link.agendaedu.com/arquivo1.pdf\">Império...o Romano.pdf</a></p><p><a href=\"http://link.agendaedu.com/arquivo2.pptx\">Império...o Romano.pptx</a></p><p>Confirmar Leitura</p></body></html>"
+    }
+  }
+}
