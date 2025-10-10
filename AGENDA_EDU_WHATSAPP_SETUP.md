@@ -6,7 +6,7 @@ Este workflow automatiza o encaminhamento de comunicados da Agenda Edu para o Wh
 
 O workflow consiste em 5 nós principais:
 
-1. **IMAP Email** - Captura e-mails automaticamente
+1. **Gmail Trigger** - Captura e-mails automaticamente do Gmail
 2. **IF - Agenda Edu** - Filtra apenas e-mails da Agenda Edu
 3. **Extrair Dados do E-mail** - Extrai informações específicas do HTML
 4. **Formatar Mensagem** - Formata a mensagem para WhatsApp
@@ -14,15 +14,21 @@ O workflow consiste em 5 nós principais:
 
 ## Configuração Necessária
 
-### 1. Credenciais IMAP
+### 1. Credenciais Gmail OAuth2
 
-Configure as credenciais do seu provedor de e-mail:
+Configure as credenciais do Gmail usando OAuth2:
 
-- **Host**: Seu servidor IMAP (ex: imap.gmail.com)
-- **Porta**: 993 (SSL) ou 143 (TLS)
-- **Usuário**: Seu e-mail
-- **Senha**: Sua senha ou senha de aplicativo
-- **SSL**: Habilitado
+- **Client ID**: ID do cliente OAuth2 do Google
+- **Client Secret**: Chave secreta do cliente OAuth2
+- **Access Token**: Token de acesso (gerado automaticamente)
+- **Refresh Token**: Token de atualização (gerado automaticamente)
+
+**Como obter as credenciais:**
+1. Acesse [Google Cloud Console](https://console.cloud.google.com/)
+2. Crie um projeto ou selecione um existente
+3. Ative a API Gmail
+4. Crie credenciais OAuth2
+5. Configure as URLs de redirecionamento no n8n
 
 ### 2. Credenciais WhatsApp Business API
 
@@ -42,11 +48,12 @@ Para alterar os números, edite o array `numerosTelefone` no código JavaScript.
 
 ## Funcionamento Detalhado
 
-### 1. Captura de E-mails (IMAP Email)
+### 1. Captura de E-mails (Gmail Trigger)
 
 - **Frequência**: A cada minuto
 - **Filtro**: Apenas e-mails de `no-reply@agendaedu.com`
 - **Formato**: Suporta HTML e texto
+- **Autenticação**: OAuth2 (mais seguro que senha)
 
 ### 2. Filtro de E-mails (IF - Agenda Edu)
 
@@ -144,14 +151,15 @@ const mensagem = `*Seu Título Personalizado*\n\n*Aluno(a):*\n${nomeAluno}\n\n..
 
 ### Ajustar Filtros de E-mail
 
-Para capturar e-mails de outros remetentes, edite o nó "IMAP Email" e modifique o filtro `fromEmail`.
+Para capturar e-mails de outros remetentes, edite o nó "Gmail Trigger" e modifique o filtro `fromEmail`.
 
 ## Troubleshooting
 
 ### E-mails não são capturados
-- Verifique as credenciais IMAP
-- Confirme se o e-mail está sendo recebido
+- Verifique as credenciais Gmail OAuth2
+- Confirme se a API Gmail está ativada
 - Verifique se o filtro `fromEmail` está correto
+- Confirme se os tokens OAuth2 não expiraram
 
 ### Dados não são extraídos corretamente
 - Verifique se o formato do e-mail da Agenda Edu mudou

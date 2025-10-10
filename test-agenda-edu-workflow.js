@@ -120,7 +120,7 @@ ${linksFormatados}`;
 
 // Função principal de teste
 function testarWorkflow() {
-  console.log('🧪 Testando Workflow Agenda Edu - WhatsApp\n');
+  console.log('🧪 Testando Workflow Agenda Edu - WhatsApp (Gmail OAuth2)\n');
   
   // Simular entrada do e-mail
   console.log('📧 E-mail de entrada:');

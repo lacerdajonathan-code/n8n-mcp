@@ -6,7 +6,7 @@ Sistema automatizado para encaminhar comunicados da Agenda Edu para o WhatsApp, 
 
 Este projeto implementa um workflow n8n que:
 
-1. **Captura e-mails** automaticamente via IMAP
+1. **Captura e-mails** automaticamente via Gmail OAuth2
 2. **Filtra** apenas e-mails da Agenda Edu (`no-reply@agendaedu.com`)
 3. **Extrai dados** específicos do HTML do e-mail:
    - Nome do aluno
@@ -38,19 +38,24 @@ Este projeto implementa um workflow n8n que:
 
 ## 🔧 Configuração
 
-### 1. Credenciais IMAP
+### 1. Credenciais Gmail OAuth2
 
-Configure seu provedor de e-mail:
+Configure o Gmail usando OAuth2 (mais seguro):
 
 ```json
 {
-  "host": "imap.gmail.com",
-  "port": 993,
-  "secure": true,
-  "user": "seu-email@gmail.com",
-  "password": "sua-senha-de-aplicativo"
+  "clientId": "seu-client-id.apps.googleusercontent.com",
+  "clientSecret": "seu-client-secret",
+  "accessToken": "seu-access-token",
+  "refreshToken": "seu-refresh-token"
 }
 ```
+
+**Como obter:**
+1. Acesse [Google Cloud Console](https://console.cloud.google.com/)
+2. Ative a API Gmail
+3. Crie credenciais OAuth2
+4. Configure no n8n
 
 ### 2. Credenciais WhatsApp Business API
 
@@ -172,9 +177,10 @@ const numerosTelefone = [
 ## 🐛 Troubleshooting
 
 ### E-mails não são capturados
-- ✅ Verificar credenciais IMAP
+- ✅ Verificar credenciais Gmail OAuth2
+- ✅ Confirmar se API Gmail está ativada
 - ✅ Confirmar filtro `fromEmail`
-- ✅ Verificar se e-mail está sendo recebido
+- ✅ Verificar se tokens OAuth2 não expiraram
 
 ### Dados não extraídos
 - ✅ Verificar formato do e-mail da Agenda Edu

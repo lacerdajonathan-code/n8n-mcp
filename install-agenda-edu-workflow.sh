@@ -36,16 +36,15 @@ cp agenda-edu-whatsapp-workflow.json ~/.n8n/workflows/
 echo "✅ Workflow copiado para ~/.n8n/workflows/"
 
 # Criar arquivo de exemplo de credenciais
-cat > ~/.n8n/credentials/imap-credentials.example.json << 'EOF'
+cat > ~/.n8n/credentials/gmail-credentials.example.json << 'EOF'
 {
-  "name": "IMAP Email Account",
-  "type": "imap",
+  "name": "Gmail OAuth2 Account",
+  "type": "gmailOAuth2",
   "data": {
-    "host": "imap.gmail.com",
-    "port": 993,
-    "secure": true,
-    "user": "seu-email@gmail.com",
-    "password": "sua-senha-de-aplicativo"
+    "clientId": "seu-client-id.apps.googleusercontent.com",
+    "clientSecret": "seu-client-secret",
+    "accessToken": "seu-access-token",
+    "refreshToken": "seu-refresh-token"
   }
 }
 EOF
@@ -63,7 +62,7 @@ cat > ~/.n8n/credentials/whatsapp-credentials.example.json << 'EOF'
 EOF
 
 echo "✅ Arquivos de exemplo de credenciais criados:"
-echo "   - ~/.n8n/credentials/imap-credentials.example.json"
+echo "   - ~/.n8n/credentials/gmail-credentials.example.json"
 echo "   - ~/.n8n/credentials/whatsapp-credentials.example.json"
 
 # Executar teste do workflow

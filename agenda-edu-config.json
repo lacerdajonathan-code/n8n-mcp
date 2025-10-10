@@ -5,16 +5,15 @@
     "version": "1.0.0"
   },
   "email": {
-    "provider": "IMAP",
+    "provider": "Gmail",
     "fromFilter": "no-reply@agendaedu.com",
     "pollingInterval": "everyMinute",
     "credentials": {
-      "imap": {
-        "host": "imap.gmail.com",
-        "port": 993,
-        "secure": true,
-        "username": "seu-email@gmail.com",
-        "password": "sua-senha-de-aplicativo"
+      "gmailOAuth2": {
+        "clientId": "seu-client-id",
+        "clientSecret": "seu-client-secret",
+        "accessToken": "seu-access-token",
+        "refreshToken": "seu-refresh-token"
       }
     }
   },

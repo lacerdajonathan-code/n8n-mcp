@@ -4,7 +4,7 @@
 
 ```mermaid
 graph TD
-    A["📧 IMAP Email<br/>Captura e-mails automaticamente<br/>Filtro: no-reply@agendaedu.com"] --> B["🔍 IF - Agenda Edu<br/>Verifica remetente<br/>Só prossegue se for da Agenda Edu"]
+    A["📧 Gmail Trigger<br/>Captura e-mails automaticamente<br/>Filtro: no-reply@agendaedu.com<br/>OAuth2 Authentication"] --> B["🔍 IF - Agenda Edu<br/>Verifica remetente<br/>Só prossegue se for da Agenda Edu"]
     
     B -->|"✅ E-mail válido"| C["⚙️ Extrair Dados do E-mail<br/>JavaScript Code<br/>• Nome do aluno<br/>• Conteúdo da atividade<br/>• Links dos anexos"]
     
@@ -27,11 +27,12 @@ graph TD
 
 ## Detalhamento dos Nós
 
-### 1. IMAP Email (Trigger)
-- **Função**: Captura e-mails automaticamente
+### 1. Gmail Trigger (Trigger)
+- **Função**: Captura e-mails automaticamente do Gmail
 - **Frequência**: A cada minuto
 - **Filtro**: Apenas `no-reply@agendaedu.com`
-- **Configuração**: Credenciais IMAP necessárias
+- **Configuração**: Credenciais Gmail OAuth2 necessárias
+- **Vantagem**: Mais seguro que IMAP, tokens automáticos
 
 ### 2. IF - Agenda Edu (Filtro)
 - **Função**: Verifica se o e-mail é da Agenda Edu
@@ -86,14 +87,13 @@ sequenceDiagram
 
 ## Configurações Necessárias
 
-### Credenciais IMAP
+### Credenciais Gmail OAuth2
 ```json
 {
-  "host": "imap.gmail.com",
-  "port": 993,
-  "secure": true,
-  "user": "seu-email@gmail.com",
-  "password": "sua-senha-de-aplicativo"
+  "clientId": "seu-client-id.apps.googleusercontent.com",
+  "clientSecret": "seu-client-secret",
+  "accessToken": "seu-access-token",
+  "refreshToken": "seu-refresh-token"
 }
 ```
 
