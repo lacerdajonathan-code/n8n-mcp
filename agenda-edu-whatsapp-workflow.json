@@ -1,0 +1,145 @@
+{
+  "name": "Encaminhar Agenda Edu para WhatsApp",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "postProcessAction": "read",
+        "options": {}
+      },
+      "id": "c7d5e9d9-3e9f-4c4e-a4b5-1c2d3e4f5a6b",
+      "name": "IMAP Email",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2.2,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.from.address }}",
+              "operation": "contains",
+              "value2": "no-reply@agendaedu.com"
+            }
+          ]
+        }
+      },
+      "id": "a1b2c3d4-5e6f-7g8h-9i0j-1k2l3m4n5o6p",
+      "name": "Filtrar Email Agenda Edu",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extrair dados do HTML do email\nconst htmlContent = $input.item.json.html || $input.item.json.textHtml || '';\n\n// Função para extrair texto entre duas strings\nfunction extractBetween(text, start, end) {\n  const startIndex = text.indexOf(start);\n  if (startIndex === -1) return '';\n  const afterStart = text.substring(startIndex + start.length);\n  const endIndex = afterStart.indexOf(end);\n  if (endIndex === -1) return afterStart;\n  return afterStart.substring(0, endIndex).trim();\n}\n\n// 1. Extrair Nome do Aluno\n// Entre \"Confira a Agenda de\" e \"e continue acompanhando\"\nlet nomeAluno = extractBetween(htmlContent, 'Confira a Agenda de', 'e continue acompanhando');\n\n// Limpar tags HTML se houver\nnomeAluno = nomeAluno.replace(/<[^>]*>/g, '').trim();\n\n// 2. Extrair Conteúdo Principal\n// Entre \"certo?\" e \"Confirmar Leitura\"\nlet conteudoPrincipal = extractBetween(htmlContent, 'certo?', 'Confirmar Leitura');\n\n// Limpar tags HTML preservando quebras de linha\nconteudoPrincipal = conteudoPrincipal\n  .replace(/<br\\s*\\/?>/gi, '\\n')\n  .replace(/<\\/p>/gi, '\\n')\n  .replace(/<[^>]*>/g, '')\n  .replace(/&nbsp;/g, ' ')\n  .replace(/\\n{3,}/g, '\\n\\n')\n  .trim();\n\n// 3. Extrair Links dos Anexos\nconst linksAnexos = [];\n\n// Procurar por links no HTML\nconst linkRegex = /<a[^>]*href=\"([^\"]*agendaedu\\.com[^\"]*)\"[^>]*>([^<]*)</gi;\nlet match;\n\nwhile ((match = linkRegex.exec(htmlContent)) !== null) {\n  const url = match[1];\n  const linkText = match[2].trim();\n  \n  // Verificar se o texto do link parece ser um nome de arquivo\n  if (linkText && (linkText.includes('.pdf') || linkText.includes('.doc') || \n      linkText.includes('.ppt') || linkText.includes('.xls') || \n      linkText.includes('...') || linkText.length > 10)) {\n    linksAnexos.push({\n      nome: linkText,\n      url: url\n    });\n  }\n}\n\n// Retornar os dados extraídos\nreturn {\n  json: {\n    nomeAluno: nomeAluno,\n    conteudoPrincipal: conteudoPrincipal,\n    linksAnexos: linksAnexos,\n    // Manter dados originais do email\n    emailFrom: $input.item.json.from,\n    emailSubject: $input.item.json.subject,\n    emailDate: $input.item.json.date\n  }\n};"
+      },
+      "id": "b2c3d4e5-6f7g-8h9i-0j1k-2l3m4n5o6p7q",
+      "name": "Extrair Dados do Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        650,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Formatar mensagem para WhatsApp\nconst dados = $input.item.json;\n\nlet mensagem = '*Novo Comunicado da Agenda Edu*\\n\\n';\nmensagem += '*Aluno(a):*\\n';\nmensagem += dados.nomeAluno + '\\n\\n';\nmensagem += '*Atividade:*\\n';\nmensagem += dados.conteudoPrincipal + '\\n\\n';\n\nif (dados.linksAnexos && dados.linksAnexos.length > 0) {\n  mensagem += '*Links para Anexos:*\\n';\n  dados.linksAnexos.forEach(link => {\n    mensagem += `📎 ${link.nome}\\n${link.url}\\n\\n`;\n  });\n}\n\n// Criar dois itens de saída, um para cada número de telefone\nreturn [\n  {\n    json: {\n      to: '5521996496442',\n      mensagem: mensagem,\n      ...dados\n    }\n  },\n  {\n    json: {\n      to: '5521966719259',\n      mensagem: mensagem,\n      ...dados\n    }\n  }\n];"
+      },
+      "id": "c3d4e5f6-7g8h-9i0j-1k2l-3m4n5o6p7q8r",
+      "name": "Formatar Mensagem WhatsApp",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        850,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "chatId": "={{ $json.to }}@c.us",
+        "message": "={{ $json.mensagem }}",
+        "options": {}
+      },
+      "id": "d4e5f6g7-8h9i-0j1k-2l3m-4n5o6p7q8r9s",
+      "name": "Enviar WhatsApp",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1050,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "IMAP Email": {
+      "main": [
+        [
+          {
+            "node": "Filtrar Email Agenda Edu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar Email Agenda Edu": {
+      "main": [
+        [
+          {
+            "node": "Extrair Dados do Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extrair Dados do Email": {
+      "main": [
+        [
+          {
+            "node": "Formatar Mensagem WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar Mensagem WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-10-10T13:30:00.000Z",
+  "versionId": "1"
+}
