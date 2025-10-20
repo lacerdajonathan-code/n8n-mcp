@@ -1,0 +1,367 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "mailbox": "INBOX",
+        "postProcessAction": "markAsRead",
+        "options": {
+          "customEmailConfig": "imap.gmail.com",
+          "allowUnauthorizedCerts": false
+        }
+      },
+      "id": "43e5ebf7-de33-4852-a970-1e20f60c57ef",
+      "name": "Monitor AgendaEdu Emails",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2.1,
+      "position": [
+        -992,
+        128
+      ],
+      "credentials": {
+        "imap": {
+          "id": "EJjkfpkOBrZzifcu",
+          "name": "IMAP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "extractHtmlContent",
+        "dataPropertyName": "html",
+        "options": {
+          "encoding": "UTF-8"
+        }
+      },
+      "id": "f0591203-1ee5-4855-9886-c82a4a9bc75d",
+      "name": "Extract HTML Content",
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        -768,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "message-text",
+              "name": "messageText",
+              "value": "={{ $json.text || $json.textPlain }}",
+              "type": "string"
+            },
+            {
+              "id": "subject",
+              "name": "subject",
+              "value": "={{ $json.subject }}",
+              "type": "string"
+            },
+            {
+              "id": "from",
+              "name": "from",
+              "value": "={{ $json.from.value[0].address }}",
+              "type": "string"
+            },
+            {
+              "id": "has-attachments",
+              "name": "hasAttachments",
+              "value": "={{ $json.attachments && $json.attachments.length > 0 }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "44c56be6-15d2-48a2-975b-ec5ea2d04d13",
+      "name": "Format Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -544,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-attachments",
+              "leftValue": "={{ $json.hasAttachments }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "392354da-c82b-4828-8779-4c603d1a2a77",
+      "name": "Check If Attachments Exist",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -320,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Loop através dos anexos e retorna um item para cada anexo\nconst attachments = $input.item.json.attachments || [];\nconst outputs = [];\n\nfor (let i = 0; i < attachments.length; i++) {\n  outputs.push({\n    json: {\n      ...($input.item.json),\n      currentAttachment: attachments[i],\n      attachmentIndex: i\n    }\n  });\n}\n\nreturn outputs;"
+      },
+      "id": "a698821a-6c81-4b3a-bef0-526715e47ac0",
+      "name": "Loop Through Attachments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.currentAttachment.url }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "*/*"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "3a3d11d0-b96c-46af-b9f8-298a653669a6",
+      "name": "Download Attachment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        128,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "media",
+        "operation": "send",
+        "fromPhoneNumberId": "={{ $vars.WHATSAPP_FROM_NUMBER }}",
+        "toPhoneNumber": "={{ $vars.WHATSAPP_TO_NUMBER }}",
+        "mediaType": "document",
+        "binaryPropertyName": "data",
+        "fileName": "={{ $json.currentAttachment.filename }}",
+        "additionalFields": {
+          "caption": "📎 Anexo do email: {{ $json.subject }}"
+        }
+      },
+      "id": "e3312313-9a4c-4460-8fdb-febef5fce535",
+      "name": "Send WhatsApp with Attachments",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        352,
+        32
+      ],
+      "webhookId": "8fb2d4fb-38d9-4fe2-9b06-6c5f0afd14f0",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "GPM6yzoWujBL0tQR",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "fromPhoneNumberId": "={{ $vars.WHATSAPP_FROM_NUMBER }}",
+        "toPhoneNumber": "={{ $vars.WHATSAPP_TO_NUMBER }}",
+        "message": "📧 *Novo email do AgendaEdu*\\n\\n*De:* {{ $json.from }}\\n*Assunto:* {{ $json.subject }}\\n\\n*Mensagem:*\\n{{ $json.messageText }}"
+      },
+      "id": "19500b02-55c4-4788-8e9c-e5cdf2a8ee0b",
+      "name": "Send WhatsApp without Attachments",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        -96,
+        224
+      ],
+      "webhookId": "01eecdb1-c03a-413f-8d39-b731631af580",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "GPM6yzoWujBL0tQR",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "fromPhoneNumberId": "={{ $vars.WHATSAPP_FROM_NUMBER }}",
+        "toPhoneNumber": "={{ $vars.WHATSAPP_TO_NUMBER }}",
+        "message": "✅ Anexo enviado com sucesso!"
+      },
+      "id": "ca5019fd-ca33-4f64-bc43-cbec1581369e",
+      "name": "Send WhatsApp with Attachments 2",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        576,
+        32
+      ],
+      "webhookId": "170c8392-f339-444e-828a-57b1c9967c4f",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "GPM6yzoWujBL0tQR",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "fromPhoneNumberId": "={{ $vars.WHATSAPP_FROM_NUMBER }}",
+        "toPhoneNumber": "={{ $vars.WHATSAPP_TO_NUMBER }}",
+        "message": "✅ Mensagem enviada com sucesso!"
+      },
+      "id": "0a868c81-e93e-480c-817e-bdd03978071d",
+      "name": "Send WhatsApp without Attachments 2",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        128,
+        224
+      ],
+      "webhookId": "457e150d-2f16-4196-98e9-5f06415500ba",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "GPM6yzoWujBL0tQR",
+          "name": "WhatsApp account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Monitor AgendaEdu Emails": {
+      "main": [
+        [
+          {
+            "node": "Extract HTML Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract HTML Content": {
+      "main": [
+        [
+          {
+            "node": "Format Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Message": {
+      "main": [
+        [
+          {
+            "node": "Check If Attachments Exist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Attachments Exist": {
+      "main": [
+        [
+          {
+            "node": "Loop Through Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send WhatsApp without Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Through Attachments": {
+      "main": [
+        [
+          {
+            "node": "Download Attachment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Attachment": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp with Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp with Attachments": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp with Attachments 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp without Attachments": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp without Attachments 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "c96d2b4d85fd1a6917df4af2aa7b23e1913504ec19c54e246a84ae1263251b47"
+  }
+}
